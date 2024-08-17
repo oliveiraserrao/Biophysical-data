@@ -1,0 +1,647 @@
+// DEFINIÇÃO DA ÁREA DE ESTUDO
+var hydroB = ee.FeatureCollection("users/oliveiraserrao/panamazon_cerr_hydros"); // use your path
+
+//var hydroB_sub = hydroB.filter('Feature Index');
+var area_estudo = hydroB;
+
+var empty = ee.Image().byte();
+var outline = empty.paint({
+  featureCollection: area_estudo,
+  color: 1,
+  width: 1
+});
+Map.addLayer(outline, {palette: '#000000'}, 'area_estudo',1);
+
+/**********************DEFINIÇÃO DO INTERVALO DE TEMPO PARA ANALISE - ANO X E ANO X+1 *********/
+
+var startyear = 2001;
+var endyear = 2020;
+
+// CRIAR LISTA DE MESES PARA UTILIZAR NAS FUNÇÕES 
+var months = ee.List.sequence(1,12);
+
+// CRIAR LISTA PARA VARIÁVEL YEARS
+var years = ee.List.sequence(startyear,endyear);
+
+// DEFINIR INÍCIO E FIM 
+var startdate = ee.Date.fromYMD(startyear,1,1);
+var enddate = ee.Date.fromYMD(endyear,12,31);
+
+/**************GPP************/
+var GPP = ee.ImageCollection('CAS/IGSNRR/PML/V2_v017')
+          .select('GPP')
+          .filterDate(startdate, enddate);
+
+//var GPP = ee.ImageCollection("MODIS/061/MOD17A2H")
+//          .select('Gpp')
+//          .filterDate(startdate, enddate);
+
+
+/**************ET-PML************/
+/*
+var ETW = ee.ImageCollection('CAS/IGSNRR/PML/V2_v017')
+          .select('ET_water')
+          .filterDate(startdate, enddate);
+
+var ETC = ee.ImageCollection('CAS/IGSNRR/PML/V2_v017')
+          .select('Ec')
+          .filterDate(startdate, enddate);
+          
+var ETS = ee.ImageCollection('CAS/IGSNRR/PML/V2_v017')
+          .select('Es')
+          .filterDate(startdate, enddate);
+var ETI = ee.ImageCollection('CAS/IGSNRR/PML/V2_v017')
+          .select('Ei')
+          .filterDate(startdate, enddate);
+
+var ET_pml = (ETW)+(ETC)+(ETS)+(ETI);
+print(ET_pml);
+
+*/
+/************************* ADD AET ********************************/
+var ET = ee.ImageCollection("MODIS/006/MOD16A2")
+          .select('ET')
+          .filterDate(startdate, enddate);
+
+/**************PRP-CHIRPS************/
+var prp = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
+          .select('precipitation')
+          .filterDate(startdate, enddate);
+
+/************************* ADD LST ********************************/
+var lst = ee.ImageCollection("MODIS/061/MOD11A2")
+          .select('LST_Day_1km')
+          //.multiply(0.02)
+          .filterDate(startdate, enddate);
+
+/**************SPEI************/
+var SPEI = ee.ImageCollection('CSIC/SPEI/2_8')
+          .select('SPEI_03_month')
+          .filterDate(startdate, enddate);
+          
+
+/**************Hydrological Process************/
+var TWS = ee.ImageCollection("NASA/GLDAS/V022/CLSM/G025/DA1D")
+          .select('TWS_tavg')
+          .filterDate(startdate, enddate);
+          
+var RF = ee.ImageCollection("IDAHO_EPSCOR/TERRACLIMATE")
+          .select('ro')
+        //.multiply(0)
+          .filterDate(startdate, enddate);
+
+var VPD = ee.ImageCollection("IDAHO_EPSCOR/TERRACLIMATE")
+            .select('vpd')
+          //.multiply(0.01)
+            .filterDate(startdate, enddate);
+
+var PDSI = ee.ImageCollection("IDAHO_EPSCOR/TERRACLIMATE")
+            .select('pdsi')
+          //.multiply(0.01)
+            .filterDate(startdate, enddate);
+
+/*************************CALCULO DA GPP acumulada ANUAL********************************/
+
+var GPP_anual_acum = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = GPP.filter(ee.Filter.calendarRange(year, year, 'year'))
+        .sum()
+        .clip(area_estudo);
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+  })).reduce('mean');
+  
+//var GPP_anual_acum = GPP_anual_acum1.multiply(0.0001);
+
+print('Acumulados anuais: ', GPP_anual_acum);
+
+/*****************************FILTRANDO POR ANO EXEMPLOS******************************/
+/*
+var GPP_anual_acum_2001_f = GPP_anual_acum.filter(ee.Filter.eq('year', 2001));
+var GPP_anual_acum_2001_f_m = GPP_anual_acum_2001_f.mosaic();
+print('Acumulado de 2001: ', GPP_anual_acum_2001_f_m);
+var GPP_anual_acum_2005_f = GPP_anual_acum.filter(ee.Filter.eq('year', 2005));
+var GPP_anual_acum_2005_f_m = GPP_anual_acum_2005_f.mosaic();
+var GPP_anual_acum_2010_f = GPP_anual_acum.filter(ee.Filter.eq('year', 2010));
+var GPP_anual_acum_2010_f_m = GPP_anual_acum_2010_f.mosaic();
+var GPP_anual_acum_2012_f = GPP_anual_acum.filter(ee.Filter.eq('year', 2012));
+var GPP_anual_acum_2012_f_m = GPP_anual_acum_2012_f.mosaic();
+var GPP_anual_acum_2016_f = GPP_anual_acum.filter(ee.Filter.eq('year', 2016));
+var GPP_anual_acum_2016_f_m = GPP_anual_acum_2016_f.mosaic();
+
+*/
+ /*******************************CALCULO DA GPP MENSAL********************************/
+
+var GPP_mensal_media =  ee.ImageCollection.fromImages(  //RETORNA A IMAGEM PARA COLEÇÃO 
+  years.map(function (ano) { // APLICAR A FUNÇÃO MAP (LOOP) PARA  A VARIÁVEL YEARS
+  
+  return months.map(function(mes){ //  returnar a variável months com a seguinte função ET:  
+  
+  var GPP_month = GPP.filter(ee.Filter.calendarRange(ano, ano, 'year'))  //filtro por ano,
+           .filter(ee.Filter.calendarRange(mes, mes, 'month')) //  filtro por mês
+           .sum() // SUM - SOMAR TODOS OS VALORES DA COLEÇÃO NO MÊS 
+           .clip(area_estudo);
+  
+  return GPP_month.set('year', ano) // INTERVALO ANO = Y
+           .set('month', mes) // INTERVALO MONTH = m 
+           .set('date', ee.Date.fromYMD(ano,mes,1)) // DATE É A DATA QUE VEM DE Y ANO, M MÊS E 1 DIA 1.
+           .set('system:time_start',ee.Date.fromYMD(ano,mes,1)); // INTERVALO SYSTEM TIME_START DAS COLEÇÕES
+            }); 
+          }).flatten()
+          ); /// EMPILHAR COLEÇÕES 
+//Obs.: A função .flatten() retorna um FeatureCollection.
+//var GPP_mensal_media = GPP_mensal_media1.multiply(0.0001);
+
+print('Essa e a GPP mensal media: ', GPP_mensal_media);
+
+
+/*******************************VIZUALIZAR_GPP**********************************/
+
+var VisAnual = {opacity:1,
+  bands: ['GPP_mean'],
+  min: 230,
+  max: 360,
+  palette: [
+    'a50026', 'd73027', 'f46d43', 'fdae61', 'fee08b', 'ffffbf',
+    'd9ef8b', 'a6d96a', '66bd63', '1a9850', '006837',
+  ]
+};
+
+var VisAnual_2 = {opacity:1,
+  bands: ['GPP'],
+  min: 20,
+  max: 32,
+  palette: [
+    'a50026', 'd73027', 'f46d43', 'fdae61', 'fee08b', 'ffffbf',
+    'd9ef8b', 'a6d96a', '66bd63', '1a9850', '006837',
+  ]
+};
+
+//Map.centerObject(area_estudo,3);
+Map.addLayer(GPP_anual_acum, VisAnual, 'GPP Anual');
+Map.addLayer(GPP_mensal_media, VisAnual_2, 'GPP_mean');
+Map.addLayer(GPP_mensal_media.filter('system:index == "239"'), VisAnual_2, 'GPP_mean_x');
+//Map.addLayer(outline, {palette: '#000000'}, 'area_estudo');
+
+
+function rename_band(img){
+  return img.select([0], [img.id()]);
+  //return img.select([0], [img.getString(ee.String('system:time_start'))]);
+  //return img.select(['ET']).rename([img.get(ee.String('system:time_start'))]);
+}
+
+////////////////////////////////////Dados anuais para toda bacia/////////////////
+/*var stacked_image_anual = GPP_anual_acum.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_anual = GPP_anual_acum.first().projection().nominalScale();
+
+var ts_anual = ee.Image(stacked_image_anual).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 500});
+
+Export.table.toDrive({
+  collection: ts_anual,
+  folder: 'img_ed',
+  description:'GPP_ano_panamazon_cerrado'
+});*/
+
+/*
+////////////////////////////////////Dados mensais para toda bacia/////////////////
+var stacked_image_mensal = GPP_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_mensal = GPP_mensal_media.first().projection().nominalScale();
+
+var ts_mensal = ee.Image(stacked_image_mensal).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 3000});
+
+Export.table.toDrive({
+  collection: ts_mensal,
+  folder: 'img_ed',
+  description:'Dados_GPP_mensais_p_toda_b'
+});
+*/
+
+////////////////////////////////////Dados mensais por mini bacia/////////////////
+// stack all the images into a single image.
+var stacked_image = GPP_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+print('Essa é a img empilhada da GPP mensal: ', stacked_image);
+// determine scale to perform reduceRegions.
+var scale = GPP_mensal_media.first().projection().nominalScale();
+
+//print('Essa é a projecao: ', scale);
+// calculate the timeseries for each feature.
+//var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 111319.49079327357}).sort('id');
+var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 5000}).sort('FID_hybas_'); 
+//GPP_mensal_media.limit(500000);
+
+// print results.
+print('Essa é a ts: ', ts);
+// Export the FeatureCollection to a KML file.
+
+Export.table.toDrive({
+  collection: ts.sort('FID_hybas_'),
+  folder: 'img_ed',
+  description:'GPP_mes_panamazon_cerrado_5K',
+  //selectors: ['.geo'],
+  fileFormat: 'csv'
+});
+
+/*
+// Export the image sample feature collection to Drive as a shapefile.
+Export.table.toDrive({
+  collection: ts,
+  description: 'image_sample_demo_shp',
+  folder: 'img_ed',
+  fileFormat: 'SHP'
+});
+*/
+
+/*************************CALCULO DA ET acumulada ANUAL********************************/
+
+var ET_anual_acum = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = ET.filter(ee.Filter.calendarRange(year, year, 'year'))
+        .sum()
+        .multiply(0.1)
+        .clip(area_estudo);
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+  })).reduce('mean');
+print('Acumulados ET anuais: ', ET_anual_acum);
+
+ /*******************************CALCULO DA ET MENSAL********************************/
+
+var ET_mensal_media =  ee.ImageCollection.fromImages(  //RETORNA A IMAGEM PARA COLEÇÃO 
+  years.map(function (ano) { // APLICAR A FUNÇÃO MAP (LOOP) PARA  A VARIÁVEL YEARS
+  
+  return months.map(function(mes){ //  returnar a variável months com a seguinte função ET:  
+  
+  var ET_month = ET.filter(ee.Filter.calendarRange(ano, ano, 'year'))  //filtro por ano,
+           .filter(ee.Filter.calendarRange(mes, mes, 'month')) //  filtro por mês
+           .sum() // SUM - SOMAR TODOS OS VALORES DA COLEÇÃO NO MÊS
+           .multiply(0.1)
+           .clip(area_estudo);
+  
+  return ET_month.set('year', ano) // INTERVALO ANO = Y
+           .set('month', mes) // INTERVALO MONTH = m 
+           .set('date', ee.Date.fromYMD(ano,mes,1)) // DATE É A DATA QUE VEM DE Y ANO, M MÊS E 1 DIA 1.
+           .set('system:time_start',ee.Date.fromYMD(ano,mes,1)); // INTERVALO SYSTEM TIME_START DAS COLEÇÕES
+            }); 
+          }).flatten()
+          ); /// EMPILHAR COLEÇÕES 
+
+print('Essa e a ET mensal media: ', ET_mensal_media);
+
+/*****************************FILTRANDO POR ANO EXEMPLOS******************************/
+//var ET_anual_acum_2016_f = ET_anual_acum.filter(ee.Filter.eq('year', 2016));
+//var ET_anual_acum_2016_f_m = ET_anual_acum_2016_f.mosaic();
+
+
+/*******************************VIZUALIZAR_ET**********************************/
+
+var VisAnual_5 = {opacity:1,
+  bands: ['ET'],
+  min: 1100,
+  max: 1500,
+  palette: [
+    'a50026', 'd73027', 'f46d43', 'fdae61', 'fee08b', 'ffffbf',
+    'd9ef8b', 'a6d96a', '66bd63', '1a9850', '006837',
+  ]
+};
+
+var VisAnual_6 = {opacity:1,
+  bands: ['ET'],
+  min: 80,
+  max: 120,
+  palette: [
+    'a50026', 'd73027', 'f46d43', 'fdae61', 'fee08b', 'ffffbf',
+    'd9ef8b', 'a6d96a', '66bd63', '1a9850', '006837',
+  ]
+};
+
+//Map.centerObject(area_estudo,3);
+//Map.addLayer(ET_anual_acum, VisAnual_5, 'ET Anual');
+Map.addLayer(ET_mensal_media, VisAnual_6, 'ET_mean');
+//Map.addLayer(outline, {palette: '#000000'}, 'area_estudo');
+
+
+
+////////////////////////////////////Dados anuais para toda bacia/////////////////
+/*var stacked_image_anual = ET_anual_acum.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_anual = ET_anual_acum.first().projection().nominalScale();
+
+var ts_anual = ee.Image(stacked_image_anual).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 500});
+
+Export.table.toDrive({
+  collection: ts_anual,
+  folder: 'img_ed',
+  description:'ET_ano_panamazon_cerrado'
+});*/
+
+/*
+////////////////////////////////////Dados mensais para toda bacia/////////////////
+var stacked_image_mensal = ET_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_mensal = ET_mensal_media.first().projection().nominalScale();
+
+var ts_mensal = ee.Image(stacked_image_mensal).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 3000});
+
+Export.table.toDrive({
+  collection: ts_mensal,
+  folder: 'img_ed',
+  description:'Dados_ET_mensais_p_toda_b'
+});
+
+*/
+////////////////////////////////////Dados mensais por mini bacia/////////////////
+// stack all the images into a single image.
+var stacked_image = ET_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+// determine scale to perform reduceRegions.
+var scale = ET_mensal_media.first().projection().nominalScale();
+
+print('Essa é a escala: ', scale);
+// calculate the timeseries for each feature.
+//var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 111319.49079327357}).sort('id');
+var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 10000}).sort('FID_hybas_');
+
+// print results.
+print(ts);
+// Export the FeatureCollection to a KML file.
+
+Export.table.toDrive({
+  collection: ts.sort('FID_hybas_'),
+  folder: 'img_ed',
+  description:'ET_mes_panamazon_cerrado',
+  //selectors: ['.geo'],
+  fileFormat: 'csv'
+});
+
+
+/*************************CALCULO DA PRP acumulada ANUAL********************************/
+
+var prp_anual_acum = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = prp.filter(ee.Filter.calendarRange(year, year, 'year'))
+        .sum()
+        //.multiply(0.1)
+        .clip(area_estudo);
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+  })).reduce('mean');
+print('Acumulados prp anuais: ', prp_anual_acum);
+
+ /*******************************CALCULO DA PRP MENSAL********************************/
+
+var prp_mensal_media =  ee.ImageCollection.fromImages(  //RETORNA A IMAGEM PARA COLEÇÃO 
+  years.map(function (ano) { // APLICAR A FUNÇÃO MAP (LOOP) PARA  A VARIÁVEL YEARS
+  
+  return months.map(function(mes){ //  returnar a variável months com a seguinte função ET:  
+  
+  var prp_month = prp.filter(ee.Filter.calendarRange(ano, ano, 'year'))  //filtro por ano,
+           .filter(ee.Filter.calendarRange(mes, mes, 'month')) //  filtro por mês
+           .sum() // SUM - SOMAR TODOS OS VALORES DA COLEÇÃO NO MÊS
+           //.multiply(0.1)
+           .clip(area_estudo);
+  
+  return prp_month.set('year', ano) // INTERVALO ANO = Y
+           .set('month', mes) // INTERVALO MONTH = m 
+           .set('date', ee.Date.fromYMD(ano,mes,1)) // DATE É A DATA QUE VEM DE Y ANO, M MÊS E 1 DIA 1.
+           .set('system:time_start',ee.Date.fromYMD(ano,mes,1)); // INTERVALO SYSTEM TIME_START DAS COLEÇÕES
+            }); 
+          }).flatten()
+          ); /// EMPILHAR COLEÇÕES 
+
+print('Essa e a prp mensal media: ', prp_mensal_media);
+
+/*******************************VIZUALIZAR_PRP**********************************/
+
+var VisAnual_7 = {opacity:1,
+  bands: ['precipitation_mean'],
+  min: 1300,
+  max: 2600,
+  palette: ['ff0606','c0e207','0de73c','2ffff5','1791f9','31059d']};
+
+var VisAnual_8 = {opacity:1,
+  bands: ['precipitation'],
+  min: 110,
+  max: 280,
+  palette: ['ff0606','c0e207','0de73c','2ffff5','1791f9','31059d']};
+
+//Map.centerObject(area_estudo,3);
+Map.addLayer(outline, {palette: '#000000'}, 'area_estudo');
+Map.addLayer(prp_anual_acum, VisAnual_7, 'prp Anual');
+Map.addLayer(prp_mensal_media, VisAnual_8, 'prp_mean');
+
+
+
+////////////////////////////////////Dados anuais para toda bacia/////////////////
+/*var stacked_image_anual = prp_anual_acum.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_anual = prp_anual_acum.first().projection().nominalScale();
+
+var ts_anual = ee.Image(stacked_image_anual).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 500});
+
+Export.table.toDrive({
+  collection: ts_anual,
+  folder: 'img_ed',
+  description:'prp_ano_panamazon_cerrado'
+});*/
+
+/*
+////////////////////////////////////Dados mensais para toda bacia/////////////////
+var stacked_image_mensal = ET_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_mensal = ET_mensal_media.first().projection().nominalScale();
+
+var ts_mensal = ee.Image(stacked_image_mensal).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 3000});
+
+Export.table.toDrive({
+  collection: ts_mensal,
+  folder: 'img_ed',
+  description:'Dados_ET_mensais_p_toda_b'
+});
+
+*/
+////////////////////////////////////Dados mensais por mini bacia/////////////////
+// stack all the images into a single image.
+var stacked_image = prp_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+// determine scale to perform reduceRegions.
+var scale = prp_mensal_media.first().projection().nominalScale();
+
+//print('Essa é a projecao: ', scale);
+// calculate the timeseries for each feature.
+//var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 111319.49079327357}).sort('id');
+var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 5000}).sort('FID_hybas_');
+
+// print results.
+print(ts);
+// Export the FeatureCollection to a KML file.
+
+Export.table.toDrive({
+  collection: ts.sort('FID_hybas_'),
+  folder: 'img_ed',
+  description:'PRP_mes_panamazon_cerrado',
+  //selectors: ['.geo'],
+  fileFormat: 'csv'
+});
+
+/*****************************exportando os mapas anuais*****************************/
+Export.image.toDrive({image: GPP_anual_acum, description: 'GPP_media_anual_pan_am_cerr',
+                      folder: 'img_ed', crs:'EPSG:4326', region: area_estudo, maxPixels: 1e11});
+
+Export.image.toDrive({image: ET_anual_acum, description: 'ET_media_anual_pan_am_cerr',
+                      folder: 'img_ed', crs:'EPSG:4326', region: area_estudo, maxPixels: 1e11});
+
+Export.image.toDrive({image: prp_anual_acum, description: 'PRP_media_anual_pan_am_cerr',
+                      folder: 'img_ed', crs:'EPSG:4326', region: area_estudo, maxPixels: 1e11});
+
+
+
+
+
+
+
+/*************************CALCULO DO SPEI ANUAL********************************/
+/*
+var SPEI_anual = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = SPEI.filter(ee.Filter.calendarRange(year, year, 'year'))
+        .mean()
+        .clip(area_estudo);
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1))
+  }));
+print('Acumulados anuais: ', SPEI_anual);
+
+/*****************************FILTRANDO POR ANO EXEMPLOS******************************/
+/*
+var SPEI_anual_2001_f = SPEI_anual.filter(ee.Filter.eq('year', 2001));
+var SPEI_anual_2001_f_m = SPEI_anual_2001_f.mosaic();
+print('Acumulado de 2001: ', SPEI_anual_2001_f_m);
+var SPEI_anual_2005_f = SPEI_anual.filter(ee.Filter.eq('year', 2005));
+var SPEI_anual_2005_f_m = SPEI_anual_2005_f.mosaic();
+var SPEI_anual_2010_f = SPEI_anual.filter(ee.Filter.eq('year', 2010));
+var SPEI_anual_2010_f_m = SPEI_anual_2010_f.mosaic();
+var SPEI_anual_2012_f = SPEI_anual.filter(ee.Filter.eq('year', 2012));
+var SPEI_anual_2012_f_m = SPEI_anual_2012_f.mosaic();
+var SPEI_anual_2016_f = SPEI_anual.filter(ee.Filter.eq('year', 2016));
+var SPEI_anual_2016_f_m = SPEI_anual_2016_f.mosaic();
+
+*/
+ /*******************************SPEI MENSAL********************************/
+/*
+var SPEI_mensal_media =  ee.ImageCollection.fromImages(  //RETORNA A IMAGEM PARA COLEÇÃO 
+  years.map(function (ano) { // APLICAR A FUNÇÃO MAP (LOOP) PARA  A VARIÁVEL YEARS
+  
+  return months.map(function(mes){ //  returnar a variável months com a seguinte função ET:  
+  
+  var SPEI_month = SPEI.filter(ee.Filter.calendarRange(ano, ano, 'year'))  //filtro por ano,
+           .filter(ee.Filter.calendarRange(mes, mes, 'month')) //  filtro por mês
+           .sum() // SUM - SOMAR TODOS OS VALORES DA COLEÇÃO NO MÊS 
+           .clip(area_estudo);
+  
+  return SPEI_month.set('year', ano) // INTERVALO ANO = Y
+           .set('month', mes) // INTERVALO MONTH = m 
+           .set('date', ee.Date.fromYMD(ano,mes,1)) // DATE É A DATA QUE VEM DE Y ANO, M MÊS E 1 DIA 1.
+           .set('system:time_start',ee.Date.fromYMD(ano,mes,1)); // INTERVALO SYSTEM TIME_START DAS COLEÇÕES
+            }); 
+          }).flatten()
+          ); /// EMPILHAR COLEÇÕES 
+
+print('Essa e a SPEI mensal media: ', SPEI_mensal_media);
+
+*/
+
+/*******************************VIZUALIZAR_SPEI**********************************/
+/*
+var VisAnual_3 = {opacity:1,
+  bands: ['SPEI_03_month'],
+  min: -1.5,
+  max: 1.9,
+  palette: [
+    'a50026', 'd73027', 'f46d43', 'fdae61', 'fee08b', 'ffffbf',
+    'd9ef8b', 'a6d96a', '66bd63', '1a9850', '006837',
+  ]
+};
+
+var VisAnual_4 = {opacity:1,
+  bands: ['SPEI_03_month'],
+  min: -1.7,
+  max:1.8,
+  palette: [
+    'a50026', 'd73027', 'f46d43', 'fdae61', 'fee08b', 'ffffbf',
+    'd9ef8b', 'a6d96a', '66bd63', '1a9850', '006837',
+  ]
+};
+
+Map.centerObject(area_estudo,3);
+Map.addLayer(SPEI_anual_2016_f_m, VisAnual_3, 'SPEI Anual 2016');
+Map.addLayer(SPEI_mensal_media, VisAnual_4, 'SPEI_mean');
+
+
+var rename_band = function(img){
+  return img.select([0], [img.id()]);
+  //return img.select([0], [img.getString(ee.String('system:time_start'))]);
+  //return img.select(['ET']).rename([img.get(ee.String('system:time_start'))]);
+};
+
+////////////////////////////////////Dados anuais para toda bacia/////////////////
+var stacked_image_anual = SPEI_anual.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_anual = SPEI_anual.first().projection().nominalScale();
+
+var ts_anual = ee.Image(stacked_image_anual).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 500});
+
+Export.table.toDrive({
+  collection: ts_anual,
+  folder: 'img_ed',
+  description:'Dados_SPEI3_anuais_p_toda_b'
+});
+
+
+////////////////////////////////////Dados mensais para toda bacia/////////////////
+var stacked_image_mensal = SPEI_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+var scale_mensal = SPEI_mensal_media.first().projection().nominalScale();
+
+var ts_mensal = ee.Image(stacked_image_mensal).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 3000});
+
+Export.table.toDrive({
+  collection: ts_mensal,
+  folder: 'img_ed',
+  description:'Dados_SPEI3_mensais_p_toda_b'
+});
+
+*/
+/*
+
+////////////////////////////////////Dados mensais por mini bacia/////////////////
+// stack all the images into a single image.
+var stacked_image = SPEI_mensal_media.map(rename_band).toBands(); //iterate(combine, stacked_image);
+
+// determine scale to perform reduceRegions.
+var scale = SPEI_mensal_media.first().projection().nominalScale();
+
+//print('Essa é a projecao: ', scale);
+// calculate the timeseries for each feature.
+//var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 111319.49079327357}).sort('id');
+var ts = ee.Image(stacked_image).reduceRegions({collection: area_estudo, reducer: ee.Reducer.mean(), scale: 17000}).sort('FID');
+
+// print results.
+print(ts);
+// Export the FeatureCollection to a KML file.
+
+Export.table.toDrive({
+  collection: ts.sort('FID'),
+  folder: 'img_ed',
+  description:'Dados_mensais_SPEI3_SUBS2',
+  //selectors: ['.geo'],
+  fileFormat: 'csv'
+});
+
+
+*/
